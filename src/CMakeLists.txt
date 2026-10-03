@@ -37,6 +37,7 @@ add_library(hsi_cuda
   sam.cu
   detect.cu
   pipeline.cu
+  stats.cu
 )
 # PUBLIC cudart so plain C++ consumers such as main.cpp get the headers too.
 target_link_libraries(hsi_cuda PUBLIC hsi_core CUDA::cudart)
