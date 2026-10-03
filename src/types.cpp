@@ -16,6 +16,14 @@ const char* to_string(Interleave interleave) {
   return "unknown";
 }
 
+const char* to_string(ScorePolarity polarity) {
+  switch (polarity) {
+    case ScorePolarity::LowerIsBetter: return "lower-is-better";
+    case ScorePolarity::HigherIsBetter: return "higher-is-better";
+  }
+  return "unknown";
+}
+
 namespace {
 
 std::size_t offset_for(Interleave interleave, const CubeShape& s, int band,

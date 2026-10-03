@@ -5,6 +5,7 @@ add_library(hsi_core
   frame_source.cpp
   hot_loader.cpp
   sam_cpu.cpp
+  detector.cpp
   linalg.cpp
   spectra_io.cpp
 )

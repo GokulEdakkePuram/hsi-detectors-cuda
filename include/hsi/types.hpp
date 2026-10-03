@@ -105,6 +105,19 @@ struct Detection {
   float angle_rad = 0;  ///< spectral angle; smaller is a better match
 };
 
+/// Which direction of a detector score means "more like a target".
+///
+/// SAM returns an angle, so smaller is better. RX returns a squared distance
+/// and ACE and CEM return filter responses, so larger is better. The
+/// thresholding stage has to be told which, since it both compares against the
+/// threshold and picks local extrema.
+enum class ScorePolarity {
+  LowerIsBetter,
+  HigherIsBetter,
+};
+
+const char* to_string(ScorePolarity polarity);
+
 /// Tuning for the thresholding stage.
 struct DetectionParams {
   /// Pixels whose spectral angle is at or below this are candidates. Radians.
@@ -121,6 +134,9 @@ struct DetectionParams {
   /// Capacity of the output list. Detections beyond this are counted but not
   /// written, so a saturated frame degrades instead of corrupting memory.
   int max_detections = 4096;
+
+  /// Which way round the score runs. Set from the detector's traits.
+  ScorePolarity polarity = ScorePolarity::LowerIsBetter;
 };
 
 /// Convert a cube between interleaves. `src` and `dst` must not alias.

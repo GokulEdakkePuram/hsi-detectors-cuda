@@ -123,6 +123,20 @@ void cholesky_inverse(const double* l, int n, double* inv) {
   }
 }
 
+void triangular_inverse_lower(const double* l, int n, double* inv) {
+  std::fill(inv, inv + static_cast<std::size_t>(n) * n, 0.0);
+  for (int k = 0; k < n; ++k) {
+    inv[static_cast<std::size_t>(k) * n + k] = 1.0 / l[static_cast<std::size_t>(k) * n + k];
+    for (int i = k + 1; i < n; ++i) {
+      double s = 0.0;
+      for (int j = k; j < i; ++j) {
+        s -= l[static_cast<std::size_t>(i) * n + j] * inv[static_cast<std::size_t>(j) * n + k];
+      }
+      inv[static_cast<std::size_t>(i) * n + k] = s / l[static_cast<std::size_t>(i) * n + i];
+    }
+  }
+}
+
 bool invert_spd(std::vector<double>& a, int n, std::vector<double>* inv) {
   if (static_cast<int>(a.size()) != n * n || !inv) return false;
   if (!cholesky(a.data(), n)) return false;

@@ -63,6 +63,21 @@ void cholesky_solve(const double* l, int n, const double* b, double* x);
 /// Invert A given L from cholesky(). `inv` is row-major n*n.
 void cholesky_inverse(const double* l, int n, double* inv);
 
+/// Invert a lower-triangular matrix, given L from cholesky().
+///
+/// This is what the detectors actually want. With S = L L^T,
+///
+///     y^T S^-1 y = || L^-1 y ||^2
+///
+/// so whitening a pixel with L^-1 and taking its squared norm gives the RX
+/// statistic for half the arithmetic of the full symmetric quadratic form, and
+/// for half the storage since L^-1 is triangular. ACE falls out of the same
+/// transform: its numerator is the dot product of two whitened vectors, so one
+/// whitening per pixel serves RX and every ACE target together.
+///
+/// `inv` is row-major n*n with the strict upper triangle zeroed.
+void triangular_inverse_lower(const double* l, int n, double* inv);
+
 /// Invert a symmetric positive-definite matrix. `a` is consumed.
 /// Returns false if the factorisation fails.
 bool invert_spd(std::vector<double>& a, int n, std::vector<double>* inv);
