@@ -223,9 +223,137 @@ void test_quadratic_form() {
   CHECK_CLOSE(quadratic_form(inv.data(), y.data(), n), 0.25 + 4.0 / 9.0 + 9.0, 1e-12);
 }
 
+void test_shifted_moments_reconstruct_exactly() {
+  // The device accumulates about a reference point to keep fp32 alive; the
+  // host has to rebuild the raw moments from that without drift.
+  const int bands = 5;
+  const int pixels = 300;
+  std::mt19937 rng(77);
+  std::normal_distribution<float> dist(0.4f, 0.05f);
+
+  std::vector<std::vector<float>> spectra;
+  SpectralMoments direct;
+  direct.reset(bands);
+  for (int p = 0; p < pixels; ++p) {
+    std::vector<float> x(static_cast<std::size_t>(bands));
+    for (float& v : x) v = dist(rng);
+    direct.add(x.data());
+    spectra.push_back(x);
+  }
+
+  // A reference that is close but deliberately not the exact mean, which is
+  // the realistic case: it comes from the previous frame.
+  std::vector<double> reference(static_cast<std::size_t>(bands), 0.41);
+
+  std::vector<double> s1(static_cast<std::size_t>(bands), 0.0);
+  std::vector<double> s2(static_cast<std::size_t>(bands) * bands, 0.0);
+  for (const std::vector<float>& x : spectra) {
+    for (int i = 0; i < bands; ++i) {
+      const double di = x[static_cast<std::size_t>(i)] - reference[static_cast<std::size_t>(i)];
+      s1[static_cast<std::size_t>(i)] += di;
+      for (int j = 0; j <= i; ++j) {
+        s2[static_cast<std::size_t>(i) * bands + j] +=
+            di * (x[static_cast<std::size_t>(j)] - reference[static_cast<std::size_t>(j)]);
+      }
+    }
+  }
+
+  SpectralMoments rebuilt;
+  moments_from_shifted(s1.data(), s2.data(), pixels, reference.data(), bands, &rebuilt);
+
+  CHECK(rebuilt.count == direct.count);
+
+  const std::vector<double> want_mean = direct.mean();
+  const std::vector<double> got_mean = rebuilt.mean();
+  for (int i = 0; i < bands; ++i) {
+    CHECK_CLOSE(got_mean[static_cast<std::size_t>(i)], want_mean[static_cast<std::size_t>(i)], 1e-12);
+  }
+
+  const std::vector<double> want_cov = direct.covariance();
+  const std::vector<double> got_cov = rebuilt.covariance();
+  double worst = 0.0;
+  for (std::size_t i = 0; i < want_cov.size(); ++i) {
+    worst = std::max(worst, std::fabs(got_cov[i] - want_cov[i]));
+  }
+  CHECK(worst < 1e-14);
+
+  // The correlation matrix CEM needs has to survive the round trip too.
+  const std::vector<double> want_corr = direct.correlation();
+  const std::vector<double> got_corr = rebuilt.correlation();
+  worst = 0.0;
+  for (std::size_t i = 0; i < want_corr.size(); ++i) {
+    worst = std::max(worst, std::fabs(got_corr[i] - want_corr[i]));
+  }
+  CHECK(worst < 1e-14);
+}
+
+void test_block_accumulation_is_what_makes_fp32_viable() {
+  // This test fixes the device accumulator's design, so it measures all three
+  // strategies rather than asserting one.
+  //
+  // The quantity the detectors consume is the variance, and it is where the
+  // errors differ most. Measured over 400k samples of reflectance near 0.37:
+  //
+  //   unshifted, one fp32 accumulator   1.7e-05 on sum(x^2)
+  //                                     ~5e-03 on the variance, because
+  //                                     sum(x^2)/N - mean^2 subtracts 0.1369
+  //                                     from 0.1373 and amplifies the relative
+  //                                     error by about 300x
+  //   shifted, one fp32 accumulator     1.3e-04 on both - no amplification,
+  //                                     but a single accumulator absorbs the
+  //                                     small increments
+  //   shifted, fp32 blocks -> fp64      2.4e-08 on both
+  //
+  // So the hierarchy is the fix and the shift is what protects the subtraction
+  // that follows it. The kernel needs both, and it needs the hierarchy more.
+  const int pixels = 400000;
+  const int block = 1024;
+  const double reference = 0.37;
+  std::mt19937 rng(91);
+  std::normal_distribution<double> dist(0.37, 0.02);
+
+  long double exact_s1 = 0.0L, exact_s2 = 0.0L;
+  float flat_s1 = 0.0f, flat_s2 = 0.0f;
+  double blocked_s1 = 0.0, blocked_s2 = 0.0;
+  float partial_s1 = 0.0f, partial_s2 = 0.0f;
+
+  for (int p = 0; p < pixels; ++p) {
+    const double d = dist(rng) - reference;
+    exact_s1 += static_cast<long double>(d);
+    exact_s2 += static_cast<long double>(d) * static_cast<long double>(d);
+    flat_s1 += static_cast<float>(d);
+    flat_s2 += static_cast<float>(d * d);
+    partial_s1 += static_cast<float>(d);
+    partial_s2 += static_cast<float>(d * d);
+    if ((p + 1) % block == 0) {
+      blocked_s1 += partial_s1;
+      blocked_s2 += partial_s2;
+      partial_s1 = 0.0f;
+      partial_s2 = 0.0f;
+    }
+  }
+  blocked_s1 += partial_s1;
+  blocked_s2 += partial_s2;
+
+  const auto variance = [&](double s1, double s2) {
+    return s2 / pixels - (s1 / pixels) * (s1 / pixels);
+  };
+  const double want = variance(static_cast<double>(exact_s1), static_cast<double>(exact_s2));
+  const double flat_error = std::fabs(variance(flat_s1, flat_s2) - want) / want;
+  const double blocked_error = std::fabs(variance(blocked_s1, blocked_s2) - want) / want;
+
+  // What the kernel will do has to be accurate in absolute terms.
+  CHECK(blocked_error < 1e-6);
+  // And it has to be decisively better than the single-accumulator version,
+  // which is the reason for the extra machinery.
+  CHECK(blocked_error < flat_error / 100.0);
+}
+
 }  // namespace
 
 int main() {
+  test_shifted_moments_reconstruct_exactly();
+  test_block_accumulation_is_what_makes_fp32_viable();
   test_cholesky_reconstructs_the_matrix();
   test_cholesky_rejects_non_positive_definite();
   test_inverse_round_trips();

@@ -78,6 +78,30 @@ std::vector<double> SpectralMoments::covariance(double diagonal_loading) const {
   return out;
 }
 
+void moments_from_shifted(const double* s1, const double* s2_lower, double count,
+                          const double* reference, int bands,
+                          SpectralMoments* out) {
+  if (!out) throw std::invalid_argument("moments_from_shifted: null output");
+  if (bands <= 0) throw std::invalid_argument("moments_from_shifted: bands must be positive");
+  out->reset(bands);
+  out->count = count;
+  if (count <= 0.0) return;
+
+  // M1 = S1 + N * r
+  for (int i = 0; i < bands; ++i) {
+    out->sum[static_cast<std::size_t>(i)] = s1[i] + count * reference[i];
+  }
+  // M2 = S2 + r S1^T + S1 r^T + N r r^T, lower triangle only.
+  for (int i = 0; i < bands; ++i) {
+    for (int j = 0; j <= i; ++j) {
+      out->sum_outer[static_cast<std::size_t>(i) * bands + j] =
+          s2_lower[static_cast<std::size_t>(i) * bands + j] +
+          reference[i] * s1[j] + s1[i] * reference[j] +
+          count * reference[i] * reference[j];
+    }
+  }
+}
+
 bool cholesky(double* a, int n) {
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j <= i; ++j) {

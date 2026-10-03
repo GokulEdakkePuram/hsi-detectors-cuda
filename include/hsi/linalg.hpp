@@ -50,6 +50,45 @@ struct SpectralMoments {
   std::vector<double> correlation(double diagonal_loading = 0.0) const;
 };
 
+/// Rebuild raw moments from sums taken about a reference point.
+///
+/// This is how the device accumulator reports its result, and the reason is
+/// precision. Accumulating sum(x x^T) directly in fp32 over a few hundred
+/// thousand pixels is hopeless: for reflectance near 0.37 the running sum
+/// reaches ~50 000 while each increment is ~0.14, which spends five and a half
+/// of fp32's seven digits before any arithmetic happens.
+///
+Two things are needed, and measurement says the less obvious one matters more
+/// (see test_block_accumulation_is_what_makes_fp32_viable). Over 400k samples
+/// of reflectance near 0.37, relative error in the variance:
+///
+///     unshifted, one fp32 accumulator   ~5e-03
+///     shifted,   one fp32 accumulator    1.3e-04
+///     shifted,   fp32 blocks -> fp64     2.4e-08
+///
+/// The hierarchy is the fix. A single fp32 accumulator absorbs the small
+/// increments no matter how the data is centred, so the device accumulates per
+/// block in fp32 and combines in fp64.
+///
+/// The shift is what protects the subtraction that follows. With d = x -
+/// reference the device accumulates sum(d) and sum(d d^T), and
+///
+///     mean = reference + S1/N
+///     cov  = S2/N - (S1/N)(S1/N)^T
+///
+/// removes a small quantity from a small quantity. Without it the same
+/// subtraction takes 0.1369 from 0.1373 and amplifies whatever relative error
+/// the accumulation had by about 300x. In the lagged pipeline mode the previous
+/// frame's mean is a free and excellent reference; otherwise a cheap mean-only
+/// pass provides one.
+///
+/// `s1` is `bands` entries and `s2_lower` is the lower triangle of a row-major
+/// bands*bands matrix (the upper triangle is ignored). The reconstruction here
+/// runs in double, where adding the reference back costs nothing.
+void moments_from_shifted(const double* s1, const double* s2_lower, double count,
+                          const double* reference, int bands,
+                          SpectralMoments* out);
+
 /// In-place Cholesky factorisation of a symmetric positive-definite matrix.
 ///
 /// `a` is row-major n*n on entry and holds the lower triangle of L on exit;
