@@ -5,6 +5,7 @@ add_library(hsi_core
   frame_source.cpp
   hot_loader.cpp
   sam_cpu.cpp
+  linalg.cpp
   spectra_io.cpp
 )
 target_include_directories(hsi_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
