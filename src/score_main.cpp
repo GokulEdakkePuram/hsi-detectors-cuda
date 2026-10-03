@@ -35,7 +35,7 @@ void usage() {
                          different quantity from "how blood-like is this pixel"
   --threshold=RAD        detection threshold                        [0.10]
   --nms=N                non-maximum suppression radius, 0 off          [2]
-  --dump-angle=FILE      write the angle map as raw float32
+  --dump-score=FILE      write the angle map as raw float32
   --dump-target=FILE     write the winning target index as raw int32
   --print=N              print the first N detections                 [10]
   --help)");
@@ -133,12 +133,12 @@ int main(int argc, char** argv) {
                 library.size(), seconds);
 
     hsi::DetectionParams params;
-    params.threshold_rad = std::stof(get("threshold", "0.10"));
+    params.threshold = std::stof(get("threshold", "0.10"));
     params.nms_radius = std::stoi(get("nms", "2"));
     const std::vector<hsi::Detection> detections =
         hsi::detect_cpu(angle.data(), target.data(), frame.shape, params);
     std::printf("found    %zu detections at threshold %.3f rad, nms radius %d\n",
-                detections.size(), params.threshold_rad, params.nms_radius);
+                detections.size(), params.threshold, params.nms_radius);
 
     // Per target, so a library whose signatures overlap is visible here rather
     // than discovered later as a confusing detection count.
@@ -156,12 +156,12 @@ int main(int argc, char** argv) {
       const hsi::Detection& d = detections[static_cast<std::size_t>(i)];
       std::printf("  (%4d,%4d) %-22s angle %.4f rad\n", d.x, d.y,
                   library.targets[static_cast<std::size_t>(d.target)].name.c_str(),
-                  d.angle_rad);
+                  d.score);
     }
 
-    if (args.count("dump-angle")) {
-      dump(get("dump-angle", "angle.f32"), angle);
-      std::printf("wrote angle map to %s\n", get("dump-angle", "angle.f32").c_str());
+    if (args.count("dump-score")) {
+      dump(get("dump-score", "angle.f32"), angle);
+      std::printf("wrote angle map to %s\n", get("dump-score", "angle.f32").c_str());
     }
     if (args.count("dump-target")) {
       dump(get("dump-target", "target.i32"), target);

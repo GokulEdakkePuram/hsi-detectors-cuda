@@ -142,7 +142,7 @@ struct Buffers {
   void* d_half = nullptr;
   float* d_targets = nullptr;
   float* d_norms = nullptr;
-  float* d_angle = nullptr;
+  float* d_score = nullptr;
   std::int32_t* d_target_id = nullptr;
 };
 
@@ -205,7 +205,7 @@ Timing time_variant(hsi::SamVariant variant, const Buffers& buffers,
 
   const auto launch = [&] {
     CUDA_OK(hsi::launch_sam_best(variant, cube, shape, buffers.d_targets,
-                                 buffers.d_norms, targets, buffers.d_angle,
+                                 buffers.d_norms, targets, buffers.d_score,
                                  buffers.d_target_id, nullptr, opt_pixels));
   };
 
@@ -319,7 +319,7 @@ int main(int argc, char** argv) {
   CUDA_OK(cudaMalloc(&buffers.d_half, padded * sizeof(short)));
   CUDA_OK(cudaMalloc(&buffers.d_targets, flat.size() * sizeof(float)));
   CUDA_OK(cudaMalloc(&buffers.d_norms, norms.size() * sizeof(float)));
-  CUDA_OK(cudaMalloc(&buffers.d_angle, pixels * sizeof(float)));
+  CUDA_OK(cudaMalloc(&buffers.d_score, pixels * sizeof(float)));
   CUDA_OK(cudaMalloc(&buffers.d_target_id, pixels * sizeof(std::int32_t)));
 
   CUDA_OK(cudaMemcpy(buffers.d_bsq, host_bsq.data(), padded * sizeof(float),
@@ -358,16 +358,16 @@ int main(int argc, char** argv) {
     const void* cube = (variant == hsi::SamVariant::BipDirect) ? static_cast<const void*>(buffers.d_bip)
                        : (variant == hsi::SamVariant::Half)    ? buffers.d_half
                                                                : static_cast<const void*>(buffers.d_bsq);
-    CUDA_OK(cudaMemset(buffers.d_angle, 0, pixels * sizeof(float)));
+    CUDA_OK(cudaMemset(buffers.d_score, 0, pixels * sizeof(float)));
     CUDA_OK(cudaMemset(buffers.d_target_id, 0xff, pixels * sizeof(std::int32_t)));
     CUDA_OK(hsi::launch_sam_best(variant, cube, shape, buffers.d_targets,
-                                 buffers.d_norms, library.size(), buffers.d_angle,
+                                 buffers.d_norms, library.size(), buffers.d_score,
                                  buffers.d_target_id, nullptr, options.opt_pixels));
     CUDA_OK(cudaDeviceSynchronize());
 
     std::vector<float> gpu_angle(pixels);
     std::vector<std::int32_t> gpu_target(pixels);
-    CUDA_OK(cudaMemcpy(gpu_angle.data(), buffers.d_angle, pixels * sizeof(float),
+    CUDA_OK(cudaMemcpy(gpu_angle.data(), buffers.d_score, pixels * sizeof(float),
                        cudaMemcpyDeviceToHost));
     CUDA_OK(cudaMemcpy(gpu_target.data(), buffers.d_target_id,
                        pixels * sizeof(std::int32_t), cudaMemcpyDeviceToHost));
@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
   cudaFree(buffers.d_half);
   cudaFree(buffers.d_targets);
   cudaFree(buffers.d_norms);
-  cudaFree(buffers.d_angle);
+  cudaFree(buffers.d_score);
   cudaFree(buffers.d_target_id);
   return all_passed ? 0 : 1;
 }

@@ -1,12 +1,25 @@
-# spectral-angle-cuda
+# hsi-detectors-cuda
 
-[![ci](https://github.com/GokulEdakkePuram/spectral-angle-cuda/actions/workflows/ci.yml/badge.svg)](https://github.com/GokulEdakkePuram/spectral-angle-cuda/actions/workflows/ci.yml)
+[![ci](https://github.com/GokulEdakkePuram/hsi-detectors-cuda/actions/workflows/ci.yml/badge.svg)](https://github.com/GokulEdakkePuram/hsi-detectors-cuda/actions/workflows/ci.yml)
 
-Real-time Spectral Angle Mapper (SAM) target detection for hyperspectral video,
-written for the Jetson AGX Orin and validated on discrete NVIDIA GPUs.
+Real-time target and anomaly detection for hyperspectral video, written for the
+Jetson AGX Orin and validated on discrete NVIDIA GPUs.
 
-Not to be confused with Segment Anything — SAM here is the spectral angle
-mapper, a classical hyperspectral target detection measure.
+Four detectors, chosen because they sit on opposite sides of the roofline:
+
+| detector | what it finds | needs | per-pixel cost | bound by |
+|----------|---------------|-------|---------------:|----------|
+| **SAM** — spectral angle mapper | known targets | a signature | ~2B FLOP | DRAM |
+| **CEM** — constrained energy minimization | known targets | signature + scene stats | ~2B FLOP | DRAM |
+| **RX** — Reed-Xiaoli | anomalies, no prior | scene stats | ~B² FLOP | compute |
+| **ACE** — adaptive cosine estimator | known targets | signature + scene stats | ~B² FLOP | compute |
+
+At 113 bands the second pair is around 28 FLOP/byte against a ridge point near
+38 on an RTX 3090 and near 26 on an AGX Orin, so SAM/CEM are bandwidth problems
+and RX/ACE are arithmetic problems. Optimising them pulls in opposite
+directions, which is most of what makes this interesting.
+
+SAM here is the spectral angle mapper, not Segment Anything.
 
 Given a stream of hyperspectral frames and a library of target signatures, the
 pipeline scores every pixel against every target, thresholds the result and
@@ -67,7 +80,7 @@ build/src/hsi_detect --source=envi \
 
 # CPU reference scorer - no GPU needed, and what a GPU run gets diffed against.
 build/src/hsi_score --cube=data/hyperblood_prepared/F_1.hdr \
-  --library=data/hyperblood_targets.csv --target=blood --dump-angle=/tmp/F_1.f32
+  --library=data/hyperblood_targets.csv --target=blood --dump-score=/tmp/F_1.f32
 
 # Snapshot-mosaic hyperspectral video (HOT-style).
 build/src/hsi_detect --source=hot --hot-dir=<frames/> --mosaic=4 --bands=16 \

@@ -77,7 +77,7 @@ cudaError_t upload_targets(const float* values, const float* norms,
 ///                  the other variants take their targets from constant memory
 ///                  via upload_targets().
 /// `d_target_norms` per-target L2 norms, same proviso.
-/// `d_angle_rad`    out, shape.pixels() floats: smallest angle at that pixel.
+/// `d_score`    out, shape.pixels() floats: smallest angle at that pixel.
 /// `d_target_id`    out, shape.pixels() int32: which target won. May be null.
 ///
 /// A single acosf runs per pixel, not per target: the kernel ranks targets on
@@ -91,7 +91,7 @@ cudaError_t upload_targets(const float* values, const float* norms,
 cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
                             CubeShape shape, const float* d_targets,
                             const float* d_target_norms, int num_targets,
-                            float* d_angle_rad, std::int32_t* d_target_id,
+                            float* d_score, std::int32_t* d_target_id,
                             cudaStream_t stream,
                             int opt_pixels_per_thread = 0);
 

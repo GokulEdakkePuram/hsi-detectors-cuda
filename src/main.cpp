@@ -53,7 +53,7 @@ Execution
                                 the GPU rather than the frame generator
   --csv=FILE                    write per-frame timings
   --print-detections=N          print the first N detections of the last frame
-  --dump-angle=FILE             write the last frame's angle map as raw float32
+  --dump-score=FILE             write the last frame's angle map as raw float32
                                 (height*width, raster order) for offline scoring
   --quiet
   --help)");
@@ -193,10 +193,10 @@ int main(int argc, char** argv) {
     }
     options.num_streams = args.integer("streams", 3);
     options.prefill = args.has("prefill") ? 1 : 0;
-    options.detection.threshold_rad = args.real("threshold", 0.10f);
+    options.detection.threshold = args.real("threshold", 0.10f);
     options.detection.nms_radius = args.integer("nms", 2);
     options.detection.max_detections = args.integer("max-detections", 4096);
-    options.return_angle_map = args.has("dump-angle");
+    options.return_score_map = args.has("dump-score");
 
     std::string error;
     auto pipeline = hsi::Pipeline::create(source.get(), library, options, &error);
@@ -228,16 +228,16 @@ int main(int argc, char** argv) {
     std::ofstream csv;
     if (args.has("csv")) {
       csv.open(args.str("csv", "timings.csv"));
-      csv << "frame,detections,ms_source,ms_upload,ms_sam,ms_detect,ms_download,"
+      csv << "frame,detections,ms_source,ms_upload,ms_score,ms_detect,ms_download,"
              "ms_gpu,ms_wall\n";
     }
 
     const auto on_frame = [&](const hsi::FrameResult& result) {
       last_detections = result.detections;
-      if (!result.angle_map.empty()) last_angle_map = result.angle_map;
+      if (!result.score_map.empty()) last_angle_map = result.score_map;
       if (csv.is_open()) {
         csv << result.meta.index << "," << result.detections_found << ","
-            << result.ms_source << "," << result.ms_upload << "," << result.ms_sam
+            << result.ms_source << "," << result.ms_upload << "," << result.ms_score
             << "," << result.ms_detect << "," << result.ms_download << ","
             << result.ms_gpu << "," << result.ms_wall << "\n";
       }
@@ -260,12 +260,12 @@ int main(int argc, char** argv) {
         static_cast<unsigned long long>(stats.frames), stats.wall_s, stats.fps,
         stats.cube_gb_per_s, stats.mpixel_per_s, stats.ms_p50, stats.ms_p95,
         stats.ms_p99, stats.ms_max, stats.mean_source, stats.mean_upload,
-        stats.mean_sam, stats.mean_detect, stats.mean_download, stats.mean_gpu,
+        stats.mean_score, stats.mean_detect, stats.mean_download, stats.mean_gpu,
         static_cast<unsigned long long>(stats.total_detections),
         stats.frames ? static_cast<double>(stats.total_detections) / stats.frames : 0.0);
 
-    if (args.has("dump-angle") && !last_angle_map.empty()) {
-      const std::string path = args.str("dump-angle", "angle.f32");
+    if (args.has("dump-score") && !last_angle_map.empty()) {
+      const std::string path = args.str("dump-score", "angle.f32");
       std::ofstream out(path, std::ios::binary);
       out.write(reinterpret_cast<const char*>(last_angle_map.data()),
                 static_cast<std::streamsize>(last_angle_map.size() * sizeof(float)));
@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
       for (int i = 0; i < print && i < static_cast<int>(last_detections.size()); ++i) {
         const hsi::Detection& d = last_detections[static_cast<std::size_t>(i)];
         std::printf("  (%4d,%4d) target %d  angle %.4f rad\n", d.x, d.y, d.target,
-                    d.angle_rad);
+                    d.score);
       }
     }
     return 0;

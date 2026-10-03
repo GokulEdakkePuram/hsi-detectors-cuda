@@ -43,7 +43,8 @@ __device__ bool is_local_best(const float* __restrict__ angle, int x, int y,
 __global__ void detect_kernel(const float* __restrict__ angle,
                               const int* __restrict__ target, int width,
                               int height, float threshold, int radius,
-                              int capacity, Detection* __restrict__ out,
+                              bool higher_is_better, int capacity,
+                              Detection* __restrict__ out,
                               unsigned int* __restrict__ count) {
   const std::size_t p = blockIdx.x * static_cast<std::size_t>(blockDim.x) + threadIdx.x;
   const std::size_t pixels = static_cast<std::size_t>(width) * height;
@@ -62,7 +63,7 @@ __global__ void detect_kernel(const float* __restrict__ angle,
         det.x = x;
         det.y = y;
         det.target = target ? target[p] : 0;
-        det.angle_rad = a;
+        det.score = a;
       }
     }
   }
@@ -87,19 +88,20 @@ __global__ void detect_kernel(const float* __restrict__ angle,
 
 }  // namespace
 
-cudaError_t launch_detect(const float* d_angle_rad,
+cudaError_t launch_detect(const float* d_score,
                           const std::int32_t* d_target_id, CubeShape shape,
                           DetectionParams params, Detection* d_out,
                           unsigned int* d_count, cudaStream_t stream) {
-  if (!shape.valid() || !d_angle_rad || !d_out || !d_count) {
+  if (!shape.valid() || !d_score || !d_out || !d_count) {
     return cudaErrorInvalidValue;
   }
   const std::size_t pixels = shape.pixels();
   const unsigned blocks = static_cast<unsigned>((pixels + kBlock - 1) / kBlock);
   detect_kernel<<<blocks, kBlock, 0, stream>>>(
-      d_angle_rad, reinterpret_cast<const int*>(d_target_id), shape.width,
-      shape.height, params.threshold_rad, params.nms_radius,
-      params.max_detections, d_out, d_count);
+      d_score, reinterpret_cast<const int*>(d_target_id), shape.width,
+      shape.height, params.threshold, params.nms_radius,
+      params.polarity == ScorePolarity::HigherIsBetter, params.max_detections,
+      d_out, d_count);
   return cudaGetLastError();
 }
 

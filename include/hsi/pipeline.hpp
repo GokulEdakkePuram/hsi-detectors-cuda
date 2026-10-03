@@ -60,7 +60,7 @@ struct PipelineOptions {
   /// score, not just the ones over threshold. It adds a megabytes-per-frame
   /// D2H that the real-time path exists to avoid, so it is off by default and
   /// should stay off when measuring throughput.
-  bool return_angle_map = false;
+  bool return_score_map = false;
 };
 
 struct FrameResult {
@@ -69,12 +69,12 @@ struct FrameResult {
   unsigned int detections_found = 0;  ///< may exceed detections.size() if saturated
 
   /// Per-pixel spectral angle, raster order. Empty unless the pipeline was
-  /// built with return_angle_map.
-  std::vector<float> angle_map;
+  /// built with return_score_map.
+  std::vector<float> score_map;
 
   float ms_source = 0;    ///< host time spent producing the frame
   float ms_upload = 0;    ///< 0 in ZeroCopy mode, by construction
-  float ms_sam = 0;
+  float ms_score = 0;
   float ms_detect = 0;
   float ms_download = 0;
   float ms_gpu = 0;       ///< upload through download, on the device
@@ -88,7 +88,7 @@ struct PipelineStats {
   double cube_gb_per_s = 0;   ///< cube bytes retired per second
   double mpixel_per_s = 0;
   float ms_p50 = 0, ms_p95 = 0, ms_p99 = 0, ms_max = 0;
-  float mean_source = 0, mean_upload = 0, mean_sam = 0, mean_detect = 0,
+  float mean_source = 0, mean_upload = 0, mean_score = 0, mean_detect = 0,
         mean_download = 0, mean_gpu = 0;
   std::uint64_t total_detections = 0;
 };

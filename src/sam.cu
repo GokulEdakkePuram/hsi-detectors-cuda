@@ -371,7 +371,7 @@ cudaError_t upload_targets(const float* values, const float* norms,
 cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
                             CubeShape shape, const float* d_targets,
                             const float* d_target_norms, int num_targets,
-                            float* d_angle_rad, std::int32_t* d_target_id,
+                            float* d_score, std::int32_t* d_target_id,
                             cudaStream_t stream, int opt_pixels_per_thread) {
   if (!shape.valid() || num_targets <= 0) return cudaErrorInvalidValue;
 
@@ -385,7 +385,7 @@ cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
       const std::size_t blocks = div_up(pixels, kBlock);
       sam_baseline_kernel<<<static_cast<unsigned>(blocks), kBlock, 0, stream>>>(
           static_cast<const float*>(d_cube), shape.bands, pixels, stride,
-          d_targets, d_target_norms, num_targets, d_angle_rad, out_target);
+          d_targets, d_target_norms, num_targets, d_score, out_target);
       return cudaGetLastError();
     }
     case SamVariant::BipDirect: {
@@ -393,7 +393,7 @@ cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
       const std::size_t blocks = div_up(pixels, kBlock);
       sam_bip_kernel<<<static_cast<unsigned>(blocks), kBlock, 0, stream>>>(
           static_cast<const float*>(d_cube), shape.bands, pixels, d_targets,
-          d_target_norms, num_targets, d_angle_rad, out_target);
+          d_target_norms, num_targets, d_score, out_target);
       return cudaGetLastError();
     }
     case SamVariant::Optimized: {
@@ -412,7 +412,7 @@ cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
 #define HSI_LAUNCH_OPT(N, P)                                                   \
   sam_opt_kernel<N, P><<<static_cast<unsigned>(blocks), kBlock, 0, stream>>>(   \
       static_cast<const float*>(d_cube), shape.bands, pixels, stride, done,     \
-      first, last, d_angle_rad, out_target)
+      first, last, d_score, out_target)
 #define HSI_LAUNCH_OPT_TT(P)                                                   \
   do {                                                                         \
     if (tt == 8) HSI_LAUNCH_OPT(8, P);                                          \
@@ -445,7 +445,7 @@ cudaError_t launch_sam_best(SamVariant variant, const void* d_cube,
 #define HSI_LAUNCH_HALF(N)                                                    \
   sam_half_kernel<N><<<static_cast<unsigned>(blocks), kBlock, 0, stream>>>(    \
       static_cast<const __half*>(d_cube), shape.bands, pixels, stride, done,   \
-      first, last, d_angle_rad, out_target)
+      first, last, d_score, out_target)
         if (tt == 4) HSI_LAUNCH_HALF(4);
         else if (tt == 2) HSI_LAUNCH_HALF(2);
         else HSI_LAUNCH_HALF(1);

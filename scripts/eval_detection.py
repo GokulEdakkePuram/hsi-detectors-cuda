@@ -4,7 +4,7 @@
     build/src/hsi_detect --source=envi \
       --envi=data/hyperblood_prepared/F_1.hdr \
       --library=data/hyperblood_targets.csv \
-      --frames=1 --warmup=0 --dump-angle=/tmp/F_1.f32
+      --frames=1 --warmup=0 --dump-score=/tmp/F_1.f32
 
     python3 scripts/eval_detection.py /tmp/F_1.f32 \
       data/hyperblood_prepared/F_1_gt.u8 --width=696 --height=520
@@ -68,7 +68,7 @@ def roc_auc(scores, labels):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("angle_map", type=pathlib.Path, help="raw float32 from --dump-angle")
+    parser.add_argument("angle_map", type=pathlib.Path, help="raw float32 from --dump-score")
     parser.add_argument("ground_truth", type=pathlib.Path, help="raw uint8 class mask")
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)

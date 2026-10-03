@@ -284,7 +284,7 @@ python3 scripts/prepare_hyperblood.py
 # match over all targets, which is not the same quantity as blood-likeness.
 build/src/hsi_score --cube=data/hyperblood_prepared/A_1.hdr \
   --library=data/hyperblood_targets.csv --target=blood \
-  --threshold=0.10 --dump-angle=/tmp/A_1_blood.f32
+  --threshold=0.10 --dump-score=/tmp/A_1_blood.f32
 
 python3 scripts/eval_detection.py /tmp/A_1_blood.f32 \
   data/hyperblood_prepared/A_1_gt.u8 --width=696 --height=520 --target=1

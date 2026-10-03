@@ -152,7 +152,7 @@ void test_nms_keeps_one_pixel_per_blob() {
   angle[4 * 9 + 4] = 0.01f;
 
   DetectionParams params;
-  params.threshold_rad = 0.1f;
+  params.threshold = 0.1f;
 
   params.nms_radius = 0;
   CHECK(detect_cpu(angle.data(), which.data(), shape, params).size() == 9);
@@ -163,7 +163,7 @@ void test_nms_keeps_one_pixel_per_blob() {
   CHECK(peaks.size() == 1);
   if (peaks.size() == 1) {
     CHECK(peaks[0].x == 4 && peaks[0].y == 4);
-    CHECK_CLOSE(peaks[0].angle_rad, 0.01, 1e-6);
+    CHECK_CLOSE(peaks[0].score, 0.01, 1e-6);
   }
 }
 
@@ -178,7 +178,7 @@ void test_nms_breaks_ties_by_index() {
   }
 
   DetectionParams params;
-  params.threshold_rad = 0.1f;
+  params.threshold = 0.1f;
   params.nms_radius = 2;
   const std::vector<Detection> peaks =
       detect_cpu(angle.data(), which.data(), shape, params);
@@ -187,9 +187,64 @@ void test_nms_breaks_ties_by_index() {
   if (peaks.size() == 1) CHECK(peaks[0].x == 1 && peaks[0].y == 1);
 }
 
+void test_polarity_inverts_the_detector() {
+  // The same score map, read both ways round. RX and ACE return responses
+  // where larger is better, so thresholding and suppression both have to
+  // invert - and nothing else about the stage changes.
+  const CubeShape shape = make_shape(7, 7, 1);
+  std::vector<float> score(49, 0.5f);
+  std::vector<std::int32_t> which(49, 0);
+
+  // A low-valued well at (2,2) and a high-valued peak at (5,5).
+  score[2 * 7 + 2] = 0.01f;
+  score[5 * 7 + 5] = 0.99f;
+
+  DetectionParams params;
+  params.nms_radius = 1;
+
+  params.threshold = 0.1f;
+  params.polarity = ScorePolarity::LowerIsBetter;
+  const std::vector<Detection> low = detect_cpu(score.data(), which.data(), shape, params);
+  CHECK(low.size() == 1);
+  if (low.size() == 1) CHECK(low[0].x == 2 && low[0].y == 2);
+
+  params.threshold = 0.9f;
+  params.polarity = ScorePolarity::HigherIsBetter;
+  const std::vector<Detection> high = detect_cpu(score.data(), which.data(), shape, params);
+  CHECK(high.size() == 1);
+  if (high.size() == 1) CHECK(high[0].x == 5 && high[0].y == 5);
+}
+
+void test_polarity_picks_the_right_extremum_in_a_blob() {
+  // A plateau with both a dip and a bump inside one suppression window, so a
+  // detector that inverted the threshold but not the suppression would still
+  // pass the test above while failing this one.
+  const CubeShape shape = make_shape(9, 9, 1);
+  std::vector<float> score(81, 0.5f);
+  std::vector<std::int32_t> which(81, 0);
+  for (int y = 3; y <= 5; ++y)
+    for (int x = 3; x <= 5; ++x) score[y * 9 + x] = 0.8f;
+  score[3 * 9 + 3] = 0.6f;  // lowest of the raised block
+  score[5 * 9 + 5] = 0.95f; // highest of the raised block
+
+  DetectionParams params;
+  params.nms_radius = 3;
+  params.threshold = 0.55f;
+  params.polarity = ScorePolarity::HigherIsBetter;
+
+  const std::vector<Detection> found = detect_cpu(score.data(), which.data(), shape, params);
+  CHECK(found.size() == 1);
+  if (found.size() == 1) {
+    CHECK(found[0].x == 5 && found[0].y == 5);
+    CHECK_CLOSE(found[0].score, 0.95, 1e-6);
+  }
+}
+
 }  // namespace
 
 int main() {
+  test_polarity_inverts_the_detector();
+  test_polarity_picks_the_right_extremum_in_a_blob();
   test_identical_spectrum_is_zero_angle();
   test_scale_invariance();
   test_orthogonal_and_zero_pixels();

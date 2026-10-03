@@ -41,15 +41,15 @@ struct Slot {
   float* host_cube = nullptr;      ///< pinned; device-mapped in ZeroCopy mode
   float* device_cube = nullptr;    ///< aliases host_cube in ZeroCopy mode
   void* half_cube = nullptr;       ///< fp16 copy, only for SamVariant::Half
-  float* d_angle = nullptr;
+  float* d_score = nullptr;
   std::int32_t* d_target = nullptr;
   Detection* d_detections = nullptr;
   unsigned int* d_count = nullptr;
   Detection* h_detections = nullptr;  ///< pinned readback
   unsigned int* h_count = nullptr;
-  float* h_angle = nullptr;           ///< pinned, only when scoring offline
+  float* h_score = nullptr;           ///< pinned, only when scoring offline
 
-  cudaEvent_t ev_begin = nullptr, ev_uploaded = nullptr, ev_sam = nullptr,
+  cudaEvent_t ev_begin = nullptr, ev_uploaded = nullptr, ev_score = nullptr,
               ev_detect = nullptr, ev_done = nullptr;
 
   FrameMeta meta;
@@ -69,20 +69,20 @@ class CudaPipeline final : public Pipeline {
     for (Slot& slot : slots_) {
       if (slot.ev_begin) cudaEventDestroy(slot.ev_begin);
       if (slot.ev_uploaded) cudaEventDestroy(slot.ev_uploaded);
-      if (slot.ev_sam) cudaEventDestroy(slot.ev_sam);
+      if (slot.ev_score) cudaEventDestroy(slot.ev_score);
       if (slot.ev_detect) cudaEventDestroy(slot.ev_detect);
       if (slot.ev_done) cudaEventDestroy(slot.ev_done);
       if (slot.stream) cudaStreamDestroy(slot.stream);
       if (slot.host_cube) cudaFreeHost(slot.host_cube);
       if (opt_.memory == MemoryMode::Copy && slot.device_cube) cudaFree(slot.device_cube);
       if (slot.half_cube) cudaFree(slot.half_cube);
-      if (slot.d_angle) cudaFree(slot.d_angle);
+      if (slot.d_score) cudaFree(slot.d_score);
       if (slot.d_target) cudaFree(slot.d_target);
       if (slot.d_detections) cudaFree(slot.d_detections);
       if (slot.d_count) cudaFree(slot.d_count);
       if (slot.h_detections) cudaFreeHost(slot.h_detections);
       if (slot.h_count) cudaFreeHost(slot.h_count);
-      if (slot.h_angle) cudaFreeHost(slot.h_angle);
+      if (slot.h_score) cudaFreeHost(slot.h_score);
     }
     if (d_targets_) cudaFree(d_targets_);
     if (d_target_norms_) cudaFree(d_target_norms_);
@@ -183,7 +183,7 @@ class CudaPipeline final : public Pipeline {
                      "alloc fp16 cube");
       }
 
-      HSI_CUDA_TRY(cudaMalloc(&slot.d_angle, pixels * sizeof(float)), "alloc angle map");
+      HSI_CUDA_TRY(cudaMalloc(&slot.d_score, pixels * sizeof(float)), "alloc angle map");
       HSI_CUDA_TRY(cudaMalloc(&slot.d_target, pixels * sizeof(std::int32_t)),
                    "alloc target map");
       HSI_CUDA_TRY(cudaMalloc(&slot.d_detections,
@@ -196,8 +196,8 @@ class CudaPipeline final : public Pipeline {
                    "alloc pinned detection readback");
       HSI_CUDA_TRY(cudaHostAlloc(&slot.h_count, sizeof(unsigned int), cudaHostAllocDefault),
                    "alloc pinned counter readback");
-      if (opt_.return_angle_map) {
-        HSI_CUDA_TRY(cudaHostAlloc(&slot.h_angle, pixels * sizeof(float),
+      if (opt_.return_score_map) {
+        HSI_CUDA_TRY(cudaHostAlloc(&slot.h_score, pixels * sizeof(float),
                                    cudaHostAllocDefault),
                      "alloc pinned angle map readback");
       }
@@ -206,7 +206,7 @@ class CudaPipeline final : public Pipeline {
                                                     : cudaEventDisableTiming;
       HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_begin, event_flags), "create event");
       HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_uploaded, event_flags), "create event");
-      HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_sam, event_flags), "create event");
+      HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_score, event_flags), "create event");
       HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_detect, event_flags), "create event");
       HSI_CUDA_TRY(cudaEventCreateWithFlags(&slot.ev_done, event_flags), "create event");
     }
@@ -295,13 +295,13 @@ class CudaPipeline final : public Pipeline {
           cube = slot.half_cube;
         }
         HSI_CUDA_TRY(launch_sam_best(opt_.variant, cube, shape_, d_targets_,
-                                     d_target_norms_, num_targets_, slot.d_angle,
+                                     d_target_norms_, num_targets_, slot.d_score,
                                      slot.d_target, slot.stream), "sam");
-        HSI_CUDA_TRY(cudaEventRecord(slot.ev_sam, slot.stream), "record sam");
+        HSI_CUDA_TRY(cudaEventRecord(slot.ev_score, slot.stream), "record sam");
 
         HSI_CUDA_TRY(cudaMemsetAsync(slot.d_count, 0, sizeof(unsigned int), slot.stream),
                      "reset detection counter");
-        HSI_CUDA_TRY(launch_detect(slot.d_angle, slot.d_target, shape_,
+        HSI_CUDA_TRY(launch_detect(slot.d_score, slot.d_target, shape_,
                                    opt_.detection, slot.d_detections, slot.d_count,
                                    slot.stream), "detect");
         HSI_CUDA_TRY(cudaEventRecord(slot.ev_detect, slot.stream), "record detect");
@@ -316,8 +316,8 @@ class CudaPipeline final : public Pipeline {
                                          sizeof(Detection),
                                      cudaMemcpyDeviceToHost, slot.stream),
                      "read back detections");
-        if (opt_.return_angle_map) {
-          HSI_CUDA_TRY(cudaMemcpyAsync(slot.h_angle, slot.d_angle,
+        if (opt_.return_score_map) {
+          HSI_CUDA_TRY(cudaMemcpyAsync(slot.h_score, slot.d_score,
                                        pixels * sizeof(float),
                                        cudaMemcpyDeviceToHost, slot.stream),
                        "read back angle map");
@@ -360,7 +360,7 @@ class CudaPipeline final : public Pipeline {
     };
     stats_.mean_source = mean(t_source_);
     stats_.mean_upload = mean(t_upload_);
-    stats_.mean_sam = mean(t_sam_);
+    stats_.mean_score = mean(t_sam_);
     stats_.mean_detect = mean(t_detect_);
     stats_.mean_download = mean(t_download_);
     stats_.mean_gpu = mean(t_gpu_);
@@ -388,8 +388,8 @@ class CudaPipeline final : public Pipeline {
     const unsigned kept = std::min<unsigned>(
         result.detections_found, static_cast<unsigned>(opt_.detection.max_detections));
     result.detections.assign(slot.h_detections, slot.h_detections + kept);
-    if (opt_.return_angle_map && slot.h_angle) {
-      result.angle_map.assign(slot.h_angle, slot.h_angle + shape_.pixels());
+    if (opt_.return_score_map && slot.h_score) {
+      result.score_map.assign(slot.h_score, slot.h_score + shape_.pixels());
     }
 
     if (opt_.time_stages) {
@@ -397,9 +397,9 @@ class CudaPipeline final : public Pipeline {
       HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_begin, slot.ev_uploaded),
                    "time upload");
       result.ms_upload = ms;
-      HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_uploaded, slot.ev_sam), "time sam");
-      result.ms_sam = ms;
-      HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_sam, slot.ev_detect), "time detect");
+      HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_uploaded, slot.ev_score), "time sam");
+      result.ms_score = ms;
+      HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_score, slot.ev_detect), "time detect");
       result.ms_detect = ms;
       HSI_CUDA_TRY(cudaEventElapsedTime(&ms, slot.ev_detect, slot.ev_done),
                    "time download");
@@ -412,7 +412,7 @@ class CudaPipeline final : public Pipeline {
     latencies_.push_back(result.ms_wall);
     t_source_.push_back(result.ms_source);
     t_upload_.push_back(result.ms_upload);
-    t_sam_.push_back(result.ms_sam);
+    t_sam_.push_back(result.ms_score);
     t_detect_.push_back(result.ms_detect);
     t_download_.push_back(result.ms_download);
     t_gpu_.push_back(result.ms_gpu);

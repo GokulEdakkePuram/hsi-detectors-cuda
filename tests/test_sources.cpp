@@ -101,7 +101,7 @@ void test_detector_finds_the_planted_targets() {
                angle.data(), which.data());
 
   DetectionParams params;
-  params.threshold_rad = 0.05f;
+  params.threshold = 0.05f;
   params.nms_radius = 4;
   const std::vector<Detection> found =
       detect_cpu(angle.data(), which.data(), shape, params);
@@ -140,7 +140,7 @@ void test_detector_finds_the_planted_targets() {
   for (std::size_t p = 0; p < shape.pixels(); ++p) {
     if (truth[p] == 0) worst_background = std::min<double>(worst_background, angle[p]);
   }
-  CHECK(worst_background > params.threshold_rad);
+  CHECK(worst_background > params.threshold);
 }
 
 /// Write a BSQ ENVI pair whose value at (b, y, x) identifies all three, so a

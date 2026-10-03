@@ -20,7 +20,7 @@ double angle_of(double dot, double pixel_sq, double target_norm) {
 }  // namespace
 
 void sam_cpu(const float* cube_bsq, CubeShape shape, const float* targets,
-             const float* target_norms, int num_targets, float* out_angle_rad) {
+             const float* target_norms, int num_targets, float* out_score) {
   const std::size_t pixels = shape.pixels();
   const int bands = shape.bands;
 
@@ -39,7 +39,7 @@ void sam_cpu(const float* cube_bsq, CubeShape shape, const float* targets,
         dot += static_cast<double>(cube_bsq[static_cast<std::size_t>(b) * pixels + p]) *
                targets[static_cast<std::size_t>(t) * bands + b];
       }
-      out_angle_rad[static_cast<std::size_t>(t) * pixels + p] =
+      out_score[static_cast<std::size_t>(t) * pixels + p] =
           static_cast<float>(angle_of(dot, pixel_sq, target_norms[t]));
     }
   }
@@ -47,7 +47,7 @@ void sam_cpu(const float* cube_bsq, CubeShape shape, const float* targets,
 
 void sam_best_cpu(const float* cube_bsq, CubeShape shape, const float* targets,
                   const float* target_norms, int num_targets,
-                  float* out_angle_rad, std::int32_t* out_target) {
+                  float* out_score, std::int32_t* out_target) {
   const std::size_t pixels = shape.pixels();
   const int bands = shape.bands;
 
@@ -71,16 +71,30 @@ void sam_best_cpu(const float* cube_bsq, CubeShape shape, const float* targets,
         best_target = t;
       }
     }
-    out_angle_rad[p] = static_cast<float>(best);
+    out_score[p] = static_cast<float>(best);
     out_target[p] = best_target;
   }
 }
 
 namespace {
 
+/// Is `a` a better score than `b` for this detector?
+///
+/// SAM returns an angle so smaller wins; RX, ACE and CEM return responses so
+/// larger wins. Everything downstream of the score is otherwise identical,
+/// which is why polarity is a parameter rather than four copies of this file.
+inline bool better(float a, float b, ScorePolarity polarity) {
+  return polarity == ScorePolarity::LowerIsBetter ? a < b : a > b;
+}
+
+inline bool over_threshold(float score, float threshold, ScorePolarity polarity) {
+  return polarity == ScorePolarity::LowerIsBetter ? score <= threshold
+                                                  : score >= threshold;
+}
+
 /// Mirrors is_local_best() in detect.cu, including the index tie-break.
-bool local_best(const float* angle, int x, int y, CubeShape shape, int radius,
-                float self) {
+bool local_best(const float* scores, int x, int y, CubeShape shape, int radius,
+                float self, ScorePolarity polarity) {
   const std::size_t self_index = static_cast<std::size_t>(y) * shape.width + x;
   for (int dy = -radius; dy <= radius; ++dy) {
     const int ny = y + dy;
@@ -90,8 +104,8 @@ bool local_best(const float* angle, int x, int y, CubeShape shape, int radius,
       const int nx = x + dx;
       if (nx < 0 || nx >= shape.width) continue;
       const std::size_t n = static_cast<std::size_t>(ny) * shape.width + nx;
-      if (angle[n] < self) return false;
-      if (angle[n] == self && n < self_index) return false;
+      if (better(scores[n], self, polarity)) return false;
+      if (scores[n] == self && n < self_index) return false;
     }
   }
   return true;
@@ -99,23 +113,24 @@ bool local_best(const float* angle, int x, int y, CubeShape shape, int radius,
 
 }  // namespace
 
-std::vector<Detection> detect_cpu(const float* angle_rad,
+std::vector<Detection> detect_cpu(const float* score,
                                   const std::int32_t* target, CubeShape shape,
                                   const DetectionParams& params) {
   std::vector<Detection> out;
   for (int y = 0; y < shape.height; ++y) {
     for (int x = 0; x < shape.width; ++x) {
       const std::size_t p = static_cast<std::size_t>(y) * shape.width + x;
-      if (angle_rad[p] > params.threshold_rad) continue;
+      if (!over_threshold(score[p], params.threshold, params.polarity)) continue;
       if (params.nms_radius > 0 &&
-          !local_best(angle_rad, x, y, shape, params.nms_radius, angle_rad[p])) {
+          !local_best(score, x, y, shape, params.nms_radius, score[p],
+                      params.polarity)) {
         continue;
       }
       Detection d;
       d.x = x;
       d.y = y;
       d.target = target ? target[p] : 0;
-      d.angle_rad = angle_rad[p];
+      d.score = score[p];
       out.push_back(d);
     }
   }

@@ -102,7 +102,7 @@ struct Detection {
   int x = 0;
   int y = 0;
   int target = 0;       ///< index into SpectralLibrary::targets
-  float angle_rad = 0;  ///< spectral angle; smaller is a better match
+  float score = 0;  ///< spectral angle; smaller is a better match
 };
 
 /// Which direction of a detector score means "more like a target".
@@ -121,7 +121,7 @@ const char* to_string(ScorePolarity polarity);
 /// Tuning for the thresholding stage.
 struct DetectionParams {
   /// Pixels whose spectral angle is at or below this are candidates. Radians.
-  float threshold_rad = 0.10f;
+  float threshold = 0.10f;
 
   /// Radius of the non-maximum suppression window, in pixels. 0 disables it.
   ///
