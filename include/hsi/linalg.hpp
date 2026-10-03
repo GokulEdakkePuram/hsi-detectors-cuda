@@ -58,7 +58,7 @@ struct SpectralMoments {
 /// reaches ~50 000 while each increment is ~0.14, which spends five and a half
 /// of fp32's seven digits before any arithmetic happens.
 ///
-Two things are needed, and measurement says the less obvious one matters more
+/// Two things are needed, and measurement says the less obvious one matters more
 /// (see test_block_accumulation_is_what_makes_fp32_viable). Over 400k samples
 /// of reflectance near 0.37, relative error in the variance:
 ///
